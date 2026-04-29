@@ -1,0 +1,60 @@
+# Agent Registry Governance
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+pip-log.txt
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+build/
+
+# CDK
+infrastructure/cdk/venv/
+infrastructure/cdk/*.egg-info/
+infrastructure/cdk/*.cdk.out/
+infrastructure/cdk/cdk.out/
+infrastructure/cdk/cdk.context.json
+
+# Environment
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# AWS
+.aws-sam/
+
+# Secrets (safety)
+*.pem
+*.key
+secrets.json
+credentials.json

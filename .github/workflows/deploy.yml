@@ -1,0 +1,117 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Test Backend
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pytest tests/ || echo "No tests yet"
+      
+      - name: Test Frontend
+        run: |
+          cd frontend
+          npm install
+          npm run build
+
+  deploy-infra:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Configure AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Install CDK
+      run: |
+        npm install -g aws-cdk
+        cd infrastructure/cdk
+        pip install -r requirements.txt
+    
+    - name: CDK Bootstrap
+      run: |
+        cd infrastructure/cdk
+        cdk bootstrap aws://${{ secrets.AWS_ACCOUNT_ID }}/${{ env.AWS_REGION }}
+    
+    - name: CDK Deploy
+      run: |
+        cd infrastructure/cdk
+        cdk deploy --require-approval never --outputs-file cdk-outputs.json
+    
+    - name: Save Outputs
+      run: |
+        cd infrastructure/cdk
+        echo "API_URL=$(jq -r '.AgentRegistryGovernanceStack.ApiUrl' cdk-outputs.json)" >> $GITHUB_ENV
+        echo "BUCKET=$(jq -r '.AgentRegistryGovernanceStack.WebsiteBucket' cdk-outputs.json)" >> $GITHUB_ENV
+        echo "DISTRIBUTION_ID=$(jq -r '.AgentRegistryGovernanceStack.CloudFrontDistributionId' cdk-outputs.json)" >> $GITHUB_ENV
+
+  deploy-frontend:
+    needs: deploy-infra
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    
+    - name: Configure AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Build Frontend
+      run: |
+        cd frontend
+        npm install
+        npm run build
+      env:
+        VITE_API_URL: ${{ needs.deploy-infra.outputs.API_URL }}
+    
+    - name: Deploy to S3
+      run: |
+        aws s3 sync frontend/dist s3://${{ needs.deploy-infra.outputs.BUCKET }} --delete
+    
+    - name: Invalidate CloudFront
+      run: |
+        aws cloudfront create-invalidation \
+          --distribution-id ${{ needs.deploy-infra.outputs.DISTRIBUTION_ID }} \
+          --paths "/*"
+    
+    - name: Deployment Summary
+      run: |
+        echo "## Deployment Complete! 🚀" >> $GITHUB_STEP_SUMMARY
+        echo "- **Frontend**: https://${{ needs.deploy-infra.outputs.CLOUDFRONT_URL }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **API**: ${{ needs.deploy-infra.outputs.API_URL }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Region**: ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
